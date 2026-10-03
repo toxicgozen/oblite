@@ -1,0 +1,22 @@
+{
+  "dog": {
+    "id": "dog",
+    "title": "Golden Retriever standing Tucker",
+    "author": "Edward",
+    "page": "https://commons.wikimedia.org/wiki/File:Golden_Retriever_standing_Tucker.jpg",
+    "original": "https://upload.wikimedia.org/wikipedia/commons/8/82/Golden_Retriever_standing_Tucker.jpg",
+    "license": "CC BY 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+    "changes": "Original file, unchanged."
+  },
+  "tree": {
+    "id": "tree",
+    "title": "Leafless tree",
+    "author": "Tiia Monto",
+    "page": "https://commons.wikimedia.org/wiki/File:Leafless_tree.jpg",
+    "original": "https://upload.wikimedia.org/wikipedia/commons/0/0e/Leafless_tree.jpg",
+    "license": "CC BY-SA 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+    "changes": "Original file, unchanged."
+  }
+}
