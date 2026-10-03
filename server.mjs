@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 import {readConfig,validateRequest,detectLandmarks,DetectionError} from './src/detector.mjs';
+import {createObservationStore} from './src/observations.mjs';
 
 const root = fileURLToPath(new URL('./public/',import.meta.url));
 const staticFiles = new Map([
@@ -27,7 +28,8 @@ async function readBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new DetectionError('请求不是有效 JSON。'); }
 }
 
-export function createApp({config=readConfig(),detector=detectLandmarks}={}) {
+export function createApp({config=readConfig(),detector=detectLandmarks,observationDirectory=fileURLToPath(new URL('./.observations/',import.meta.url))}={}) {
+  const observations=createObservationStore(observationDirectory);
   let busy=false;
   return http.createServer(async (req,res) => {
     res.setHeader('X-Content-Type-Options','nosniff');
@@ -41,6 +43,16 @@ export function createApp({config=readConfig(),detector=detectLandmarks}={}) {
     let path;
     try { path=new URL(req.url,'http://localhost').pathname; } catch { return send(res,400,{error:'无效路径。'}); }
     if (req.method === 'GET' && path === '/api/config') return send(res,200,{ready:config.ready,model:config.model,provider:config.provider});
+
+    if (path === '/api/observations' && req.method === 'POST') {
+      if (!req.headers['content-type']?.startsWith('application/json')) return send(res,415,{error:'请使用 JSON 请求。'});
+      try { return send(res,200,await observations.prepare(validateRequest(await readBody(req)))); }
+      catch(error){return send(res,error instanceof DetectionError ? error.status : 500,{error:error instanceof DetectionError ? error.message : '无法准备本地观察任务。'});}
+    }
+    if (path.startsWith('/api/observations/') && req.method === 'GET') {
+      try {return send(res,200,await observations.status(path.slice('/api/observations/'.length)));}
+      catch(error){return send(res,error instanceof DetectionError ? error.status : 500,{error:error instanceof DetectionError ? error.message : '无法读取会话观察结果。'});}
+    }
     if (path === '/api/detect' && req.method === 'POST') {
       if (!req.headers['content-type']?.startsWith('application/json')) return send(res,415,{error:'请使用 JSON 请求。'});
       if (busy) return send(res,409,{error:'已有检测正在进行，请稍后重试。'});
@@ -75,5 +87,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT 必须为 1–65535。');
   const app=createApp({config});
   app.on('error',error=>{console.error(error.code === 'EADDRINUSE' ? '端口 '+port+' 已被占用，请更改 PORT。' : error.message);process.exitCode=1;});
-  app.listen(port,'127.0.0.1',()=>console.log('oblite: http://127.0.0.1:'+port+'\n'+(config.ready ? '检测模型：'+config.model : '图片查看已就绪；配置 .env 后启用真实检测。')));
+  app.listen(port,'127.0.0.1',()=>console.log('oblite: http://127.0.0.1:'+port+'\n'+(config.ready ? '检测模型：'+config.model : '会话观察已就绪；可选配置 .env 后启用 API 自动检测。')));
 }

@@ -1,0 +1,38 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {once} from 'node:events';
+import {createApp} from '../server.mjs';
+import {createObservationStore} from '../src/observations.mjs';
+import {readConfig} from '../src/detector.mjs';
+import {profiles} from '../public/profiles.js';
+
+test('session handoff runs without API, matches image and profile, and guards private files',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'oblite-observation-'));
+  const store=createObservationStore(directory);
+  const server=createApp({config:readConfig({}),observationDirectory:directory});
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  t.after(async()=>{await new Promise(resolve=>{server.closeAllConnections();server.close(resolve);});await rm(directory,{recursive:true,force:true});});
+  const url='http://127.0.0.1:'+server.address().port;
+  const image={width:800,height:600,dataUrl:'data:image/jpeg;base64,/9j/AA=='};
+  const prepare=(body,origin)=>fetch(url+'/api/observations',{method:'POST',headers:{'Content-Type':'application/json',...(origin?{Origin:origin}:{})},body:JSON.stringify(body)});
+  const request={image,profile:profiles[0]};
+  const pending=await (await prepare(request)).json();assert.equal(pending.state,'pending');
+  const current=JSON.parse(await readFile(join(directory,'current.json'),'utf8'));assert.equal(current.id,pending.id);
+  assert.deepEqual(await readFile(join(directory,current.imageFile)),Buffer.from([255,216,255,0]));
+  assert.equal((await fetch(url+'/.observations/current.json')).status,404);
+  assert.equal((await prepare(request,'https://unrelated.example')).status,403);
+  assert.equal((await fetch(url+'/api/observations/not-an-id')).status,400);
+  await assert.rejects(()=>store.complete(pending.id,{points:[{id:'nose',status:'found',x:1001,y:100,reason:''}]}),/越界/);
+  await store.complete(pending.id,{points:[{id:'nose',status:'found',x:300,y:400,reason:'Session estimate'}]});
+  const completed=await (await fetch(url+'/api/observations/'+pending.id)).json();
+  assert.equal(completed.state,'complete');assert.equal(completed.result.source,'assistant-observation');
+  assert.equal(completed.result.points[0].x,.3);assert.equal(completed.result.points[1].x,null);
+  assert.equal((await (await prepare(request)).json()).state,'complete');
+  const changedProfile=structuredClone(request);changedProfile.profile.points[0].instruction+=' changed';
+  assert.equal((await (await prepare(changedProfile)).json()).state,'pending');
+  const changedImage={...request,image:{...image,width:801}};
+  assert.notEqual((await (await prepare(changedImage)).json()).id,pending.id);
+});

@@ -63,10 +63,16 @@
           <p class="field-help">每行一个点，可用 | 补充定位定义，最多 24 个。</p>
         </div>
         <details class="definitions" id="definitionDetails"><summary>查看点位定义</summary><dl id="definitions"></dl></details>
+        <label class="method-label" for="observationMode">观察方式</label>
+        <select id="observationMode">
+          <option value="session">会话观察 · 无需 API</option>
+          <option value="api">API 自动检测</option>
+        </select>
         <div class="detect-actions">
           <button id="detectButton" class="button primary" disabled>检测点位</button>
           <button id="cancelButton" class="button" hidden>取消</button>
         </div>
+        <p id="sessionStatus" class="session-status" role="status" hidden></p>
         <p class="send-note" id="sendNote">点击检测后，图片会发送给你配置的视觉服务。</p>
       </section>
       <section class="result-section">
@@ -80,13 +86,15 @@
     </aside>
   </main>
   <dialog id="settingsDialog" aria-labelledby="settingsTitle">
-    <div class="dialog-title"><h2 id="settingsTitle">检测服务</h2><button id="closeSettings" class="icon-button" aria-label="关闭">×</button></div>
+    <div class="dialog-title"><h2 id="settingsTitle">观察方式</h2><button id="closeSettings" class="icon-button" aria-label="关闭">×</button></div>
+    <p>会话观察无需 API：在网页准备任务，然后回到当前 Codex 聊天发送「处理当前图片」。助手看图后写回结果，网页自动显示。网页不会自动唤起助手。</p>
+    <p class="field-help">图片与结果保存在本机 .observations 文件夹，不纳入 Git。以下配置只用于 API 自动检测。</p>
     <p id="settingsStatus"></p>
     <p>在项目目录把 <code>.env.example</code> 复制为 <code>.env</code>，填写服务密钥和模型，然后重新启动。</p>
     <pre>VISION_BASE_URL=https://api.openai.com/v1
 VISION_API_KEY=你的服务密钥
 VISION_MODEL=可用的视觉模型名称</pre>
-    <p class="field-help">支持接收图片的 OpenAI 兼容接口。密钥只保存在本机服务端，不会发送到浏览器。缺少配置时仍可查看图片，但不会生成检测结果。</p>
+    <p class="field-help">支持接收图片的 OpenAI 兼容接口。密钥只保存在本机服务端，不会发送到浏览器。缺少 API 配置时可以使用会话观察。</p>
     <p class="field-help">结果是模型对图面位置的估计，需要结合原图判断；“待确认”点以空心显示，看不清的点保留为空。</p>
     <button id="refreshConfig" class="button">重新检查连接配置</button>
   </dialog>

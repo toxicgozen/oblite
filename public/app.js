@@ -16,8 +16,8 @@ function cancelDetection(announce=false){
   revision++;controller?.abort();controller=null;
   clearInterval(ticker);ticker=null;
   $('detecting').hidden=true;$('cancelButton').hidden=true;
-  $('detectButton').textContent='检测点位';
-  if(announce)message('检测已取消。');
+  $('sessionStatus').hidden=true;
+  if(announce)message($('observationMode').value==='session'?'已停止等待；观察任务仍保留在本机。':'检测已取消。');
   updateControls();
 }
 function invalidate(){
@@ -25,7 +25,11 @@ function invalidate(){
 }
 function updateControls(){
   let valid=true;try{selectedProfile();}catch{valid=false;}
-  $('detectButton').disabled=!currentImage||!config.ready||!valid||Boolean(controller)||!$('loadingImage').hidden;
+
+  const session=$('observationMode').value==='session';
+  $('detectButton').disabled=!currentImage||(!session&&!config.ready)||!valid||Boolean(controller)||!$('loadingImage').hidden;
+  $('detectButton').textContent=controller?(session?'等待会话结果':'检测中…'):(session?'准备会话观察':'检测点位');
+  $('sendNote').textContent=session?'图片和方案将保存到本机，供当前 Codex 会话读取。准备后，在聊天发送「处理当前图片」；已有结果会直接载入。':config.ready?'点击检测后，图片会发送给 '+config.provider+'。':'API 未配置。可切换到会话观察，无需密钥。';
   $('exportButton').disabled=!result;
 }
 function renderProfile(){
@@ -59,8 +63,9 @@ function renderResults(){
   }
   const located=result.points.filter(p=>p.status==='found').length;
   const uncertain=result.points.filter(p=>p.status==='uncertain').length;
-  $('count').textContent=located+' / '+result.points.length+' 已定位';
-  $('resultHint').textContent=uncertain?'空心点需要确认；未定位的点不绘制。':'选择点位可在原图上高亮。坐标以原图左上角为起点。';
+  const positioned=result.points.filter(p=>p.x!==null).length;
+  $('count').textContent=positioned+' / '+result.points.length+' 有坐标';
+  $('resultHint').textContent=uncertain?located+' 个已定位，'+uncertain+' 个待确认。空心点为暂定位置；空坐标不绘制。':'选择点位可在原图上高亮。坐标以原图左上角为起点。';
   for(const p of result.points){
     const position=pixelPosition(p,currentImage.width,currentImage.height);
     const row=el(position?'button':'div','point-row '+p.status);row.dataset.pointId=p.id;
@@ -79,7 +84,7 @@ function renderResults(){
     if(p.reason)row.append(el('span','point-reason',p.reason));
     $('pointList').append(row);
   }
-  $('resultMeta').textContent='模型检测：'+result.model+' · '+(result.durationMs/1000).toFixed(1)+' 秒';
+  $('resultMeta').textContent=result.source==='assistant-observation'?'来源：Codex 会话观察 · 看图估计，可复用此结果；并非网页自动检测。':'模型检测：'+result.model+' · '+(result.durationMs/1000).toFixed(1)+' 秒';
   updateControls();
 }
 function fitImage(){
@@ -144,6 +149,44 @@ function imageForModel(){
   const context=canvas.getContext('2d');context.fillStyle='#ffffff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(currentImage.decoded,0,0,canvas.width,canvas.height);
   return {dataUrl:canvas.toDataURL('image/jpeg',.92),width:currentImage.width,height:currentImage.height};
 }
+
+async function observeInSession(){
+  if(!currentImage||controller)return;
+  let profile;try{profile=selectedProfile();}catch(error){message(error.message,true);return;}
+  invalidate();
+  const ticket=revision;controller=new AbortController();const localController=controller;
+  $('cancelButton').hidden=false;updateControls();
+  const readPayload=async response=>{
+    const payload=await response.json();
+    if(!response.ok)throw new Error(payload.error||'本地观察服务不可用。');
+    return payload;
+  };
+  try{
+    let payload=await readPayload(await fetch('/api/observations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:imageForModel(),profile}),signal:localController.signal}));
+    if(ticket!==revision)return;
+    $('sessionStatus').hidden=false;
+    $('sessionStatus').textContent='观察任务 '+payload.id.slice(0,8)+' 已准备。请在当前 Codex 聊天发送「处理当前图片」。助手写回结果后，这里会自动显示；没有后台检测正在运行。';
+    while(payload.state==='pending'){
+      await new Promise((resolve,reject)=>{
+        const stop=()=>{clearTimeout(timer);reject(new DOMException('Cancelled','AbortError'));};
+        const timer=setTimeout(()=>{localController.signal.removeEventListener('abort',stop);resolve();},1500);
+        localController.signal.addEventListener('abort',stop,{once:true});
+      });
+      payload=await readPayload(await fetch('/api/observations/'+payload.id,{signal:localController.signal}));
+      if(ticket!==revision)return;
+    }
+    result=payload.result;activeId=result.points.find(p=>p.x!==null)?.id??null;
+    $('sessionStatus').textContent='已载入这张图片和当前方案的会话观察结果。';
+    renderResults();message('点位来自助手看图估计。空心点需要确认，无法判断的点保留为空。');
+  }catch(error){
+    if(ticket!==revision)return;
+    if(error.name!=='AbortError')message(error.message||'读取观察结果失败，请重新准备。',true);
+    $('sessionStatus').hidden=true;
+  }finally{
+    if(ticket===revision){controller=null;$('cancelButton').hidden=true;updateControls();}
+  }
+}
+
 async function detect(){
   if(!currentImage||controller)return;
   let profile;try{profile=selectedProfile();}catch(error){message(error.message,true);return;}
@@ -176,7 +219,7 @@ async function loadConfig(){
     const response=await fetch('/api/config');if(!response.ok)throw new Error('本地服务不可用。');
     config=await response.json();
     $('connection').classList.toggle('ready',config.ready);
-    $('connectionText').textContent=config.ready?'检测服务已配置':'待配置检测服务';
+    $('connectionText').textContent=config.ready?'API 已配置':'会话观察可用';
     $('settingsStatus').textContent=config.ready?'已配置 '+config.provider+' / '+config.model+'。这只确认本地配置完整，实际连通性以检测结果为准。':'尚未配置检测服务。';
     $('sendNote').textContent=config.ready?'点击检测后，图片会发送给 '+config.provider+'。':'配置检测服务后即可开始，点击右上角查看配置方法。';
   }catch(error){
@@ -191,7 +234,8 @@ for(const button of document.querySelectorAll('[data-sample]'))button.onclick=()
 $('profileSelect').onchange=renderProfile;
 $('customSubject').oninput=$('customPoints').oninput=()=>{invalidate();updateControls();};
 $('showLabels').onchange=()=>$('overlay').classList.toggle('hide-labels',!$('showLabels').checked);
-$('detectButton').onclick=()=>void detect();
+$('detectButton').onclick=()=>void ($('observationMode').value==='session'?observeInSession():detect());
+$('observationMode').onchange=invalidate;
 $('cancelButton').onclick=()=>cancelDetection(true);
 $('connection').onclick=()=>$('settingsDialog').showModal();
 $('closeSettings').onclick=()=>$('settingsDialog').close();

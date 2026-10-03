@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.mjs",
     "dev": "node --watch --env-file-if-exists=.env server.mjs",
-    "test": "node --test test/core.test.mjs test/server.test.mjs",
+    "test": "node --test test/core.test.mjs test/server.test.mjs test/observations.test.mjs",
     "test:live": "node --env-file-if-exists=.env scripts/check-live.mjs"
   }
 }
